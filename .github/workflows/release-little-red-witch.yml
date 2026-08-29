@@ -1,0 +1,52 @@
+name: Release Little Red Witch
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify tag matches source version
+        shell: pwsh
+        run: |
+          $tagVersion = $env:GITHUB_REF_NAME.TrimStart('v')
+          $source = Get-Content -LiteralPath 'little-red-witch/src/Program.cs' -Raw
+          $expected = 'AssemblyInformationalVersion("' + $tagVersion + '")'
+          if (-not $source.Contains($expected)) {
+            throw "Tag $env:GITHUB_REF_NAME does not match Program.cs version $tagVersion"
+          }
+
+      - name: Build portable package
+        shell: pwsh
+        run: |
+          & './little-red-witch/release.ps1' -OutputDirectory "$env:RUNNER_TEMP/little-red-witch-release"
+
+      - name: Write checksum
+        shell: pwsh
+        run: |
+          $archive = "$env:RUNNER_TEMP/little-red-witch-release/LittleRedWitch-win-x64.zip"
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath "$archive.sha256" -Value "$hash  LittleRedWitch-win-x64.zip" -NoNewline
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseDir = "$env:RUNNER_TEMP/little-red-witch-release"
+          gh release create "$env:GITHUB_REF_NAME" `
+            "$releaseDir/LittleRedWitch-win-x64.zip" `
+            "$releaseDir/LittleRedWitch-win-x64.zip.sha256" `
+            --verify-tag `
+            --generate-notes `
+            --title "小紅巫 $env:GITHUB_REF_NAME"
